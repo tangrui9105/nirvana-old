@@ -1,0 +1,602 @@
+===========================================
+Using Django with Appengine
+===========================================
+
+:Author: Shabda Raaj
+:Version: 1
+:Copyright: This document is released under a Creative Common Attribution license.
+
+.. contents::
+
+About
+----------------------------------------------
+Welcome to Django tutorial for integrating with Appengine. This is a port of the `Django tutorial`_ to use appengine instead of Pure Django.
+Like in the Django tutorial, we build a poll engine, where you can create polls and others can vote for them. Instead of the four part Django tutorial, we use only one tutorial. Also, as many parts of Django, most prominently its **super** Admin interface do not work, we will work around them. I will assume that you know python well. However I do not assume that you have previous experience with Django.  Django concepts are explained.
+
+.. _Django tutorial: http://www.djangoproject.com/documentation/
+
+
+What will we build
+-----------------------
+We will build a Poll engine, where people can create polls, and vote on the options.
+Essentially this has four types of pages,
+
+1. A listing of the recently created polls.
+2. A page where you can create new pages.
+3. A page with the choices, and for voting.
+4. A page with the results.
+
+A live install of this can be see on `http://blogango.appengine.com`
+The complete source for this can be `downloaded from here`_
+
+.. _downloaded from here: http://downloadlocation.com
+
+Downloading Django, and Appengine
+--------------------------------------
+`Downlaoding Django`_ is very well documented, so I will not repeat it here. And you have already `downloaded Appengine`_, right?
+
+.. _Downlaoding Django: http://www.djangoproject.com/download/
+.. _downloaded Appengine: http://code.google.com/appengine/downloads.html
+
+Getting Help
+------------------
+If you are having trouble with this tutorial, please ask in `Django forum` and some one from Django community would be able to help you
+, or leave a comment on `42topics.com blog`, and I will try to help you.
+
+.. _Django forum: http://groups.google.com/group/django-users
+.. _42topics.com blog: http://42topics.com/blog
+
+Creating a project
+-------------------
+Create a directory where you would like to keep all your Appengine and Django files. Inside of this directory, run the command::
+
+	django-admin.py startproject appproject
+
+This would create a directory called ``appproject`` which would contain files used by Django. We will look at these files in a moment, but before that we need to create two more files. Create a file called ``main.py`` at the same level as the folder ``appproject``, and put this code.::
+
+	import os,sys
+	os.environ['DJANGO_SETTINGS_MODULE'] = 'appproject.settings'
+
+	# Google App Engine imports.
+	from google.appengine.ext.webapp import util
+
+	# Force Django to reload its settings.
+	from django.conf import settings
+	settings._target = None
+
+	import django.core.handlers.wsgi
+	import django.core.signals
+	import django.db
+	import django.dispatch.dispatcher
+
+	# Log errors.
+	#django.dispatch.dispatcher.connect(
+	#   log_exception, django.core.signals.got_request_exception)
+
+	# Unregister the rollback event handler.
+	django.dispatch.dispatcher.disconnect(
+	    django.db._rollback_on_exception,
+	    django.core.signals.got_request_exception)
+
+	def main():
+	  # Create a Django application for WSGI.
+	  application = django.core.handlers.wsgi.WSGIHandler()
+
+	  # Run the WSGI CGI handler with that application.
+	  util.run_wsgi_app(application)
+
+	if __name__ == '__main__':
+	  main()
+	  
+Create another file called app.yaml, and put in this code::
+
+	application: appproject
+	version: 1
+	runtime: python
+	api_version: 1
+	
+	handlers:
+	- url: /.*
+	  script: main.py
+	  
+The previous two files told Appengine a little something about our app, asked it to use django to handle requests. The line ``url: /.*`` is a `regular expression`_ telling main.py to handle requests with any url. The lines::
+
+	def main():
+		  # Create a Django application for WSGI.
+		  application = django.core.handlers.wsgi.WSGIHandler()
+
+		  # Run the WSGI CGI handler with that application.
+		  util.run_wsgi_app(application)
+		  
+.. _regular expression: http://www.amk.ca/python/howto/regex/		  
+
+Create a Django wsgi server and delegate requests to that server.
+
+Navigate to folder appproject, and run the command::
+	python manage.py startapp myapp
+	
+``manage.py`` is a file which ``django-admin.py`` created. This contains commands to manage your Django applications. ``python manage.py startapp myapp`` creates a folder where you will keep all your files relating to this application. There is one another interesting file in this directory, ``settings.py``. This contains settings which for your project. 
+
+Editing the settings.py file
+-------------------------------------------
+The major difference between pure Django and Django+Appengine is the ORM. Appengine does not store the data in traditional database server. So the Django ORM will not work with Appengine. A lot of Applications bundled with Django, most notably ``admin``, ``auth``, and ``sessions`` will not work. ``django-admin.py startproject appproject`` created the ``settings.py`` assuming you would want to use the apps. We need to remove those applications from settings.py.
+
+Edit the settings.py so ``MIDDLEWARE_CLASSES`` and ``INSTALLED_APPS`` look like this.::
+
+	MIDDLEWARE_CLASSES = (
+	    'django.middleware.common.CommonMiddleware',
+	)
+
+	INSTALLED_APPS = (
+	    'appproject.poll'
+	)
+	
+Also we need to tell Django where to find HTML files which can serve as the basis of displaying the pages. Change ``TEMPLATE_DIRS`` to look like this::
+
+	import os
+	ROOT_PATH = os.path.dirname(__file__)
+	TEMPLATE_DIRS = (
+	    # Put strings here, like "/home/html/django_templates" or
+	    # "C:/www/django/templates".  Always use forward slashes, even on Windows.
+	    # Don't forget to use absolute paths, not relative paths.
+	    ROOT_PATH + '/templates',
+	)
+	
+This tells Django to find the HTML templates in a directory relative to current directory named ``templates``.
+
+Write the URL configuration file
+------------------------------------
+Django uses regular expressions, to tell which function must handle a given URL.
+Edit the file urls.py to this::
+
+	from django.conf.urls.defaults import *
+
+	urlpatterns = patterns('',
+	    (r'^$', 'pollango.poll.views.index'),
+	    (r'^create/$', 'pollango.poll.views.create'),
+	    (r'^poll/(?P<poll_key>[^\.^/]+)/$', 'pollango.poll.views.poll_detail'),
+	    (r'^poll/(?P<poll_key>[^\.^/]+)/results/$', 'pollango.poll.views.poll_results'),
+	    )
+
+We have four different types of pages and each of these page maps to that page specific. Lets disect the line ``(r'^$', 'pollango.poll.views.index'),``. The regular expression ``r'^$'`` maps to the root of the site (``^`` maps to begining of the url, and ``$`` maps to the end. So a url with no extra bits will be handled by this line. 
+``'pollango.poll.views.index'``, tells the function to use when calling this URL.
+
+Simlarly ``(r'^create/$', 'pollango.poll.views.create'),`` tells that a url which contains ``\create\`` must be handled by the function. ``pollango.poll.views.create``.
+
+
+Write the models.py file.
+----------------------------
+You need to define your datamodel in models.py file. For us the two Entities are ``Poll`` where we will store the poll question, and ``Choice`` where we will store the associated choices. So lets write the ``models.py`` file as::
+
+	from google.appengine.ext import db
+
+	class Poll(db.Model):
+	    question = db.StringProperty()
+	    created_on = db.DateTimeProperty(auto_now_add = 1)
+	    created_by = db.UserProperty()
+	    
+	    def __str__(self):
+	        return '%s' %self.question
+	    
+	    def get_absolute_url(self):
+	        return '/poll/%s/' % self.key()
+	    
+	    
+	class Choice(db.Model):
+	    poll = db.ReferenceProperty(Poll)
+	    choice = db.StringProperty()
+	    votes = db.IntegerProperty(default = 0)
+    
+Lets us disect the datamodel for Poll::
+
+	class Poll(db.Model):
+		    question = db.StringProperty()
+		    created_on = db.DateTimeProperty(auto_now_add = 1)
+		    created_by = db.UserProperty()
+	
+Each Entity needs to extend `` google.appengine.ext.db.Model ``, so that it can be stored in the datastore, so ``Poll`` extends it. Each of the attributes of the Entity needs to be of the type `` google.appengine.ext.db.*Property``, for example, if you want to store integers the attribute needs to be of type ``google.appengine.ext.db.IntegerProperty``.
+
+With ``Poll`` we are storing 
+1. the questions asked in attribute ``question``, so it is type ``db.StringProperty``
+2. who asked the question, in ``created_by``, so this is of type ``db.UserProperty()``
+3. when was the question asked in ``created_on``, so this is of type ``db.DateTimeProperty``. THe keyword argument auto_now_add, tells the ORM to add the time when the object is first created.
+
+The methods::
+
+	def __str__(self):
+	    return '%s' %self.question
+	    
+	def get_absolute_url(self):
+	    return '/poll/%s/' % self.key()
+		
+are used to get a string representation, and the URL of a ``Poll``.
+
+In ``Choice``::
+
+	class Choice(db.Model):
+		poll = db.ReferenceProperty(Poll)
+		choice = db.StringProperty()
+		votes = db.IntegerProperty(default = 0)
+
+simlarly we inherit from db.Model, and define the attributes.
+
+Writing the forms
+-------------------
+Django keeps track of Html forms by represting them as python objects, which are of type ``django.newsforms.Form``.
+
+We need two types of form, 
+
+1. To create the poll.
+2. To create the choices.
+
+So lets create a new file bforms.py, and write this.::
+
+	from django import newforms as forms
+	import models
+	from google.appengine.ext.db import djangoforms
+
+	class PollForm(djangoforms.ModelForm):
+	    class Meta:
+	        model = models.Poll
+	        exclude = ['created_by']
+	        
+	class ChoiceForm(forms.Form):
+	    choice = forms.CharField(max_length = 100)
+	    
+	    def __init__(self, poll=None, *args, **kwargs):
+	        self.poll = poll
+	        super(ChoiceForm, self).__init__(*args, **kwargs)
+	        
+	    def save(self):
+	        choice = models.Choice(poll = self.poll, choice = self.clean_data['choice'])
+	        choice.put()
+
+Lets disect each form in turn.::
+
+	class PollForm(djangoforms.ModelForm):
+		class Meta:
+		    model = models.Poll
+		    exclude = ['created_by']
+	
+	``PollForm`` is a form to create new Poll. ``google.appengine.ext.db.djangoforms.ModelForm`` allows you to create a Django form corresponding to an Appengine Entity. In ``model = models.Poll`` we defined what Entiity we want to create this form for. ``exclude = ['created_by']`` tell Django not to create any field for created_by as we do not want users to change this.
+	
+For ChoiceForm::
+
+	class ChoiceForm(forms.Form):
+	    choice = forms.CharField(max_length = 100)
+	    
+	    def __init__(self, poll=None, *args, **kwargs):
+	        self.poll = poll
+	        super(ChoiceForm, self).__init__(*args, **kwargs)
+	        
+	    def save(self):
+	        choice = models.Choice(poll = self.poll, choice = self.clean_data['choice'])
+	        choice.put()
+			
+We want this form to create ``Choice`` for a specific ``Poll``, so we extend forms.Form, and define the fields we want in this form. ``choice = forms.CharField(max_length = 100)`` tells Django that we want a field with Html ``Textfield``. 
+
+In ``def save(self):`` we define the action to happen when we want to save the data associated with this poll. ``choice = models.Choice(poll = self.poll, choice = self.clean_data['choice'])`` creates the Choice object, and ``choice.put()`` saves the object to the database. ``.clean_data`` is how you find data associated to a field.
+
+We did not write a .save mthod for ``PollForm`` as this ``ModelForm`` already has a .save method to save the associated object.
+
+Write the view
+--------------------
+We have four types of pages, and four entries in the urls.py. So we need to create four functions which are mapped to the four URL patterns. Edit the views.py file to look like this, If you do not understand do not worry, as we would disect this::
+
+	from django.http import HttpResponse, HttpResponseRedirect
+	from pollango.poll import models
+	import bforms
+	from django.shortcuts import render_to_response
+
+	def render(template, payload):
+	    payload['recents'] = models.Poll.all().order('-created_on').fetch(5)
+	    return render_to_response(template, payload)
+
+	def index(request):
+	    polls = models.Poll.all().order('-created_on').fetch(20)
+	    payload = dict(polls = polls)
+	    return render('index.html', payload)
+
+	def create(request):
+	    if request.method == 'GET':
+	        pollform = bforms.PollForm()
+	        choiceforms = []
+	        for i in range(4):
+	            choiceforms.append(bforms.ChoiceForm(prefix = 'f%s'%i))
+	    if request.method == 'POST':
+	        pollform = bforms.PollForm(request.POST)
+	        choiceform = bforms.ChoiceForm()
+	        if pollform.is_valid():
+	            poll = pollform.save()
+	            choiceforms = []
+	            for i in range(4):
+	                choiceforms.append(bforms.ChoiceForm(poll=poll, prefix = 'f%s'%i, data=request.POST))
+	            for form in choiceforms:
+	                if form.is_valid():
+	                    form.save()
+	            return HttpResponseRedirect(poll.get_absolute_url())
+	    payload = dict(pollform=pollform, choiceforms=choiceforms)
+	    return render('create.html', payload)
+
+	def poll_detail(request, poll_key):
+	    poll = models.Poll.get(poll_key)
+	    choices = models.Choice.all().filter('poll = ', poll)
+	    if request.method == 'POST':
+	        choice_key = request.POST['value']
+	        choice = models.Choice.get(choice_key)
+	        choice.votes += 1
+	        choice.put()
+	        return HttpResponseRedirect('./results/')
+	    payload = dict(poll = poll, choices = choices)
+	    return render('poll_details.html', payload)
+
+	def poll_results(request, poll_key):
+	    poll = models.Poll.get(poll_key)
+	    choices = models.Choice.all().filter('poll = ', poll)
+	    payload = dict(poll = poll, choices = choices)
+	    return render('poll_results.html', payload)
+		
+``def index(request)`` is the first function to be called in respose to a URL. This was defined in the line ``(r'^$', 'pollango.poll.views.index')``.
+
+::
+
+	def index(request):
+	    polls = models.Poll.all().order('-created_on').fetch(20)
+	    payload = dict(polls = polls)
+	    return render('index.html', payload)
+
+In ``polls = models.Poll.all().order('-created_on').fetch(20)``, models.Poll.all() get us all the ``Poll`` objects, ``.order('-created_by')`` orders the queryset in decending order of ``created_by`` and ``.fetch(20)`` limits the queryset to 20 objects. Its is the same as writing the SQL query::
+	
+	SELECT *
+	FROM poll
+	ORDER BY created_on DESC
+	LIMIT 0, 30
+	
+The querysets are lazily evaluated, so only objects which you use are loaded.
+
+To convert this to Html, we call ``render``, passing it a dictionary of objects which need to be displayed. ``render`` in turn calls ``render_to_response(template, payload)`` passing it the dictionary of the objects, and the template to use. We will see how templates work in a moment.
+
+The second view function is ``create``::
+
+	def create(request):
+	    if request.method == 'GET':
+	        pollform = bforms.PollForm()
+	        choiceforms = []
+	        for i in range(4):
+	            choiceforms.append(bforms.ChoiceForm(prefix = 'f%s'%i))
+	    if request.method == 'POST':
+	        pollform = bforms.PollForm(request.POST)
+	        choiceform = bforms.ChoiceForm()
+	        if pollform.is_valid():
+	            poll = pollform.save()
+	            choiceforms = []
+	            for i in range(4):
+	                choiceforms.append(bforms.ChoiceForm(poll=poll, prefix = 'f%s'%i, data=request.POST))
+	            for form in choiceforms:
+	                if form.is_valid():
+	                    form.save()
+	            return HttpResponseRedirect(poll.get_absolute_url())
+	    payload = dict(pollform=pollform, choiceforms=choiceforms)
+	    return render('create.html', payload)
+		
+This is reponsible for showing the form to create a new poll and a handle whne the forms are submitted. When there is a HTTP get request, the form is displayed. When there is a HTTP post request, the function creates a new poll.::
+
+	if request.method == 'GET':
+	    pollform = bforms.PollForm()
+	    choiceforms = []
+	    for i in range(4):
+	        choiceforms.append(bforms.ChoiceForm(prefix = 'f%s'%i))
+			
+This creates the form to create ``Poll`` entity object, and forms to create associated ``Choice``. These forms were defined in ``bforms.py``. 
+
+bforms.py ::
+
+	if request.method == 'POST':
+	    pollform = bforms.PollForm(request.POST)
+	    choiceform = bforms.ChoiceForm()
+	    if pollform.is_valid():
+	        poll = pollform.save()
+	        choiceforms = []
+	        for i in range(4):
+	            choiceforms.append(bforms.ChoiceForm(poll=poll, prefix = 'f%s'%i, data=request.POST))
+	        for form in choiceforms:
+	            if form.is_valid():
+	                form.save()
+	        return HttpResponseRedirect(poll.get_absolute_url())
+	
+When there is a POST request done, ``request.method`` will have value of POST. In that case we check if the user entered a value, using ``pollform.is_valid()`` and ``form.is_valid()``. If the user entered a value we do a ``form.save()``, which call ``obj.put`` and saves the object to the database.
+
+Once this function has the objects it wants to show, it calls ``render`` passing the objects.
+
+In ``poll_detail`` and ``poll_results`` we want to show a ``Poll`` and its asociated ``Choice``. If the key of the poll is ``xxxyyyyzzzz`` then the ``poll_detail`` will be called in response to URL ``/poll/xxxyyyyzzzz/``. In this case ``poll_details`` will be called with arguments ``xxxyyyyzzzz`` as ``poll_key``, as a ``HttpRequest`` object with data about the current request is the first arguemnt.::
+
+	def poll_detail(request, poll_key):
+	    poll = models.Poll.get(poll_key)
+	    choices = models.Choice.all().filter('poll = ', poll)
+	    if request.method == 'POST':
+	        choice_key = request.POST['value']
+	        choice = models.Choice.get(choice_key)
+	        choice.votes += 1
+	        choice.put()
+	        return HttpResponseRedirect('./results/')
+	    payload = dict(poll = poll, choices = choices)
+	    return render('poll_details.html', payload)
+		
+In 	``models.Poll.get(poll_key)`` we get one object with the key ``poll_key``. This is equivalent to the SQL query::
+
+	SELECT * FROM poll
+	WHERE key = poll_key
+
+with ``choices = models.Choice.all().filter('poll = ', poll)``we get all the ``Choice`` objects which are for this ``Poll``. This is equivalent to::
+
+	SELECT *
+	FROM choice
+	WHERE poll_id = poll.id
+	
+Notice that you can directly say ``filter('poll = ', poll)``, the referencing and dereferencing of keys happens behind the scenes.
+
+Once we have the ``Poll`` and ``Choice`` objects, we pass them to ``render`` which displays the page with these objects.
+
+``poll_results`` is also very similar , it gets the same objects, but it displays a different page.
+
+Writing the templates
+---------------------------------
+If you have PHP, or similar languages, you may find Django templates to be constrained. Tempaltes are meant to display presentation logic, and so you can not write full python, but rather a simplified templating language
+
+Without further ado here is the template for index page.::
+
+	{% extends 'base.html' %}
+
+	{% block title %}
+	Pollengine - A polling app built with Django, and Appengine
+	{% endblock %}
+
+	{% block contents %}
+	<h2>Pollengine - A polling app built with Django, and Appengine </h2>
+	{% for poll in polls %}
+	<div class="poll">
+	<a href="{{poll.get_absolute_url}}">{{poll.question}}</a>
+	<br>
+	By {{poll.user}} on {{poll.created_on|date}}
+	</div>
+	{% endfor %}
+	{% endblock %}
+
+Tags and objects____________________________________________
+
+You will see two types of constructs. ``{% ... %}`` are called tags, they allow you to use progreamming constructs such as looping. ``{{ .. }}`` allow you to access objects which you have passed to the template. For example, in function ``index`` we passed variable ``polls`` to the template, so you can use {{polls}} if you want. But things get a little more intersting with tags.
+
+For most of the sites you you would have common elemnts such as navigations items, and it would be wasteful to have to specify this on each page. Django allows you to extends templates. The base template defines the elemnts which the child templates should over ride. Let's see the parent template of ``index.html``.::
+
+	<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+
+	<html>
+	<head>
+	<title>
+	{% block title %}
+	Page title
+	{% endblock %}
+	</title>
+
+	<style type="text/css">
+	<!--
+	.contents{
+	  width: 70%;
+		float: right;
+	}
+	.sidebar{
+	   width: 25%;
+		 float: right;
+	}
+	-->
+	</style>
+
+	</head>
+	<body>
+
+	<div class="contents">
+	{% block contents %}
+
+	asdf
+	{% endblock %}
+	</div>
+
+	<div class="sidebar">
+	{% block sidebar %}
+	<h3>Meta</h3>
+	<ul>
+	<li>
+	<a href="/create/"> Create new Poll</a>
+	</li>
+	</ul>
+
+	<h3>Recent Polls</h3>
+	<ul>
+	{% for poll in recents %}
+	<li>
+	<a href="{{poll.get_absolute_url}}">{{poll.question}}</a>
+	</li>
+	{% endfor %}
+	</ul>
+	{% endblock %}
+	</div>
+
+	</body>
+	</html>
+
+This is simple Html page. But this provides three hooks where child pages can overide and insert specific to those pages. ``{% block contents %}`` specifies the start of such a hook. Blocks are closed with ``{% endblock %}``. ``Index.html`` overrides ``{% block contents %}``, by defining this block again. The statement ``{% extends 'base.html' %}`` told Django about the parent template of ``index.html``.
+
+``{% for poll in polls %}`` is a looping construct, which allowed us to work with each of the polls passed to this page. This loop is closed by ``{% endfor %}``. Inside of this loop, we can use ``{{poll}}`` to access the current object.
+
+There are three other templates corresponding to each of the other pages. Since they are very similar we would not dive into details,
+
+create.html::
+
+	{% extends 'base.html' %}
+
+	{% block contents %}
+	<form action="." method="post">
+	{{pollform.as_p}}
+
+	{% for form in choiceforms %}
+	{{form.as_p}}
+	{% endfor %}
+
+	<input type="submit" name="createpoll" value="createpoll" />
+	</form>
+
+	{% endblock %}
+	
+poll_details.html::
+
+	{% extends 'base.html' %}
+
+	{% block title %}
+	{{poll.question}}
+	{% endblock %}
+
+	{% block contents %}
+	<div class="poll">
+	{{poll.question}} 
+	<br />
+	{{poll.created_on|date}}
+	</div>
+	<br />
+	<form action="." method="post">
+	{% for choice in choices %}
+	<div class="choice">
+	{{ choice.choice }} <input type="radio" name="value" value="{{ choice.key }}">
+	</div>
+	{% endfor %}
+	<input type="submit" name="dovote" value="Choose" />
+	</form>
+	{% endblock %}
+	
+poll_results.html::
+
+	{% extends 'base.html' %}
+
+	{% block title %}
+	{{poll.question}} - results
+	{% endblock %}
+
+	{% block contents %}
+	<div class="poll">
+	{{poll.question}} 
+	<br />
+	{{poll.created_on|date}}
+	</div>
+	<br />
+	{% for choice in choices %}
+	<div class="choice">
+	{{ choice.choice }} 
+	{{choice.votes}}
+	</div>
+	{% endfor %}
+	{% endblock %}
+	
+What next
+------------
+I hope reading through this tutorial has got you excited about the potential of Django. You can learn more about `Django`_ at the `Django forum`_ and get help if you are stuck. If you have question about this tutorial leave a comment on `42topics.com blog`_, and I will try to help you.
+
+.. _Django: http://djangoproject.com

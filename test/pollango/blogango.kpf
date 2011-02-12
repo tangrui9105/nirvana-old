@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Komodo Project File - DO NOT EDIT -->
+<project id="a709a784-7bd5-44e7-97b1-655a67776188" kpf_version="4" name="blogango.kpf">
+<preference-set idref="a709a784-7bd5-44e7-97b1-655a67776188">
+  <boolean id="import_live">1</boolean>
+</preference-set>
+</project>

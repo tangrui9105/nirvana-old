@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Pollengine - A polling app built with Django, and Appengine
+{% endblock %}
+
+{% block contents %}
+<h2>Pollengine - A polling app built with Django, and Appengine </h2>
+{% for poll in polls %}
+<div class="poll">
+<a href="{{poll.get_absolute_url}}">{{poll.question}}</a>
+<br>
+Created on {{poll.created_on|date}}
+</div>
+{% endfor %}
+{% endblock %}
