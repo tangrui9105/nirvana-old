@@ -1,6 +1,5 @@
 from django.conf.urls.defaults import *
 
 urlpatterns = patterns('',
-    (r'^$', 'nirvana.helloworld.views.index'),
-    #(?P<username>[^\.^/]+)
-    )
+	(r'^api/', include('nirvana.api.urls')),
+)

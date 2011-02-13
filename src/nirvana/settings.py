@@ -74,5 +74,5 @@ TEMPLATE_DIRS = (
 )
 
 INSTALLED_APPS = (
-    'nirvana.helloworld'
+    'nirvana.api'
 )

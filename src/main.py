@@ -19,9 +19,9 @@ import django.dispatch.dispatcher
 #   log_exception, django.core.signals.got_request_exception)
 
 # Unregister the rollback event handler.
-django.dispatch.dispatcher.disconnect(
-    django.db._rollback_on_exception,
-    django.core.signals.got_request_exception)
+#django.dispatch.dispatcher.disconnect(
+#    django.db._rollback_on_exception,
+#    django.core.signals.got_request_exception)
 
 def main():
   # Create a Django application for WSGI.
