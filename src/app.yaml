@@ -1,4 +1,4 @@
-application: tangrui9105-nirvana
+application: tangrui9105-develop
 version: 1
 runtime: python
 api_version: 1
@@ -6,4 +6,3 @@ api_version: 1
 handlers:
 - url: /.*
   script: main.py
-

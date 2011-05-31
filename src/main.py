@@ -4,6 +4,8 @@ os.environ['DJANGO_SETTINGS_MODULE'] = 'nirvana.settings'
 
 # Google App Engine imports.
 from google.appengine.ext.webapp import util
+from google.appengine.dist import use_library
+use_library('django', '1.2')
 
 # Force Django to reload its settings.
 from django.conf import settings
